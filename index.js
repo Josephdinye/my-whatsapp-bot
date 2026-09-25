@@ -13,25 +13,26 @@ const PORT = process.env.PORT || 10000;
 let latestQRCodeRaw = null; 
 let isClientReady = false; 
 
-// Detect environment context
 const isProduction = process.env.NODE_ENV === 'production' || process.env.RENDER === 'true';
 
 // Serve the live QR code website dashboard page
 app.get('/', (req, res) => {
-    if (isClientReady) {
+    // 🛠️ FIX 1: If ready, force return immediately with absolute visual layout priority
+    if (isClientReady === true) {
         return res.send(`
             <html>
                 <body style="font-family: Arial; text-align: center; margin-top: 50px; background-color: #f0f2f5;">
                     <div style="background: white; padding: 30px; display: inline-block; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
                         <h2 style="color: #128C7E;">🟢 Bot is Connected & Active</h2>
                         <p>The engine is fully synchronized with your phone's WhatsApp app.</p>
+                        <p style="color: #666; font-size: 13px;">You can now close this tab. The bot will run 24/7 in the cloud.</p>
                     </div>
                 </body>
             </html>
         `);
     }
 
-    if (latestQRCodeRaw) {
+    if (latestQRCodeRaw && !isClientReady) {
         try {
             const qrPngBuffer = qrImage.imageSync(latestQRCodeRaw, { type: 'png' });
             const qrBase64String = qrPngBuffer.toString('base64');
@@ -41,7 +42,7 @@ app.get('/', (req, res) => {
                 <html>
                     <head>
                         <title>WhatsApp Bot Dashboard</title>
-                        <meta http-equiv="refresh" content="7">
+                        <meta http-equiv="refresh" content="5"> <!-- Refreshes slightly faster for production sync -->
                         <style>
                             body { font-family: Arial, sans-serif; text-align: center; margin-top: 50px; background-color: #f0f2f5; }
                             .container { background: white; padding: 30px; display: inline-block; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
@@ -54,7 +55,7 @@ app.get('/', (req, res) => {
                             <h1>Sync your WhatsApp Bot</h1>
                             <p>Open WhatsApp on your phone > Settings > Linked Devices > Scan the QR below:</p>
                             <img src="${finalImageSource}" alt="WhatsApp QR Code" />
-                            <p style="color: #666; font-size: 12px; margin-top: 15px;">Page auto-refreshes. Once successfully scanned, the code disappears.</p>
+                            <p style="color: #666; font-size: 12px; margin-top: 15px;">Page auto-refreshes. Once successfully scanned, the status updates.</p>
                         </div>
                     </body>
                 </html>
@@ -66,10 +67,11 @@ app.get('/', (req, res) => {
     } else {
         res.send(`
             <html>
+                <head><meta http-equiv="refresh" content="5"></head>
                 <body style="font-family: Arial; text-align: center; margin-top: 50px; background-color: #f0f2f5;">
                     <div style="background: white; padding: 30px; display: inline-block; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
-                        <h2>🔄 System Initializing...</h2>
-                        <p>Generating pairing token matrix. Please wait a moment.</p>
+                        <h2>🔄 System Synchronizing...</h2>
+                        <p>Checking authentication state layer. If you scanned the code, status will clear in a moment.</p>
                     </div>
                 </body>
             </html>
@@ -79,9 +81,6 @@ app.get('/', (req, res) => {
 
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`Express gateway port binding successful on port ${PORT}`);
-    if (!isProduction) {
-        console.log(`Open http://localhost:${PORT} in your browser to view the QR code.`);
-    }
 });
 
 const ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
@@ -92,9 +91,6 @@ const client = new Client({
     qrMaxRetries: 5,
     puppeteer: {
         headless: true, 
-        // 🛠️ FIX APPLIED: executablePath is completely removed.
-        // Puppeteer will now naturally fall back to its internal configuration 
-        // and resolve the Chrome binary from your local .puppeteer_capsule directory.
         timeout: 90000, 
         args: [
             '--no-sandbox', 
@@ -114,8 +110,10 @@ client.on('qr', (qr) => {
     qrcode.generate(qr, { small: true });
 });
 
+// 🛠️ FIX 2: Explicitly intercept the exact millisecond authorization structural files update
 client.on('authenticated', () => {
     console.log('🔒 Authentication credentials saved successfully.');
+    isClientReady = true; 
     latestQRCodeRaw = null;
 });
 
@@ -127,17 +125,11 @@ client.on('ready', () => {
     console.log('======================================================\n');
 });
 
-// COMBINED MESSAGE HANDLER: Processes routing securely without creating internal execution cascades
 client.on('message_create', async (msg) => {
-    // Ignore group chats
     if (msg.from.endsWith('@g.us') || msg.to.endsWith('@g.us')) return;
-    
-    // Ignore empty messages
     if (!msg.body || msg.body.trim() === "") return;
 
-    // Handle messages sent BY the bot account itself
     if (msg.fromMe) {
-        // Only reply if you text your own number directly as an explicit test
         if (msg.to === msg.from && !msg.body.startsWith('🤖')) {
             console.log(`[SELF MESSAGE] Texted yourself: "${msg.body}"`);
             await processAndReply(msg, msg.from);
@@ -145,7 +137,6 @@ client.on('message_create', async (msg) => {
         return; 
     }
 
-    // Handle incoming messages from other users
     console.log(`[INCOMING MESSAGE] From: ${msg.from} | Text: "${msg.body}"`);
     await processAndReply(msg, msg.from);
 });
@@ -163,7 +154,6 @@ async function processAndReply(msg, targetNumber) {
         const aiResponse = await generateAIResponse(msg.body);
 
         console.log(` -> Delivering response bubble packet...`);
-        // Prefix with 🤖 so self-testing filters know to ignore it
         await client.sendMessage(targetNumber, `🤖 ${aiResponse}`);
         console.log(`🎉 Success! Reply sent to ${targetNumber}\n`);
     } catch (error) {
