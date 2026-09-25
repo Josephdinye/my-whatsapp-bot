@@ -13,7 +13,7 @@ const PORT = process.env.PORT || 10000;
 let latestQRCodeRaw = null; 
 let isClientReady = false; 
 
-// Detect if running on Render's cloud platform or local machine
+// Detect environment context
 const isProduction = process.env.NODE_ENV === 'production' || process.env.RENDER === 'true';
 
 // Serve the live QR code website dashboard page
@@ -88,15 +88,14 @@ const ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 const client = new Client({
     authStrategy: new LocalAuth(),
-    authTimeoutMs: 90000, // Increased to 90 seconds to avoid connection dropouts
+    authTimeoutMs: 90000, 
     qrMaxRetries: 5,
     puppeteer: {
         headless: true, 
-        // 🛠️ SMART CONFIG: Uses Render's system path on cloud, or default Windows path locally
-        executablePath: isProduction 
-            ? '/usr/bin/google-chrome-stable' 
-            : 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-        timeout: 90000, // Wait up to 90 seconds for ://whatsapp.com to open
+        // 🛠️ FIX APPLIED: executablePath is completely removed.
+        // Puppeteer will now naturally fall back to its internal configuration 
+        // and resolve the Chrome binary from your local .puppeteer_capsule directory.
+        timeout: 90000, 
         args: [
             '--no-sandbox', 
             '--disable-setuid-sandbox',
@@ -128,7 +127,7 @@ client.on('ready', () => {
     console.log('======================================================\n');
 });
 
-// COMBINED MESSAGE HANDLER: Handles responses securely without infinite recursive loops
+// COMBINED MESSAGE HANDLER: Processes routing securely without creating internal execution cascades
 client.on('message_create', async (msg) => {
     // Ignore group chats
     if (msg.from.endsWith('@g.us') || msg.to.endsWith('@g.us')) return;
@@ -164,7 +163,7 @@ async function processAndReply(msg, targetNumber) {
         const aiResponse = await generateAIResponse(msg.body);
 
         console.log(` -> Delivering response bubble packet...`);
-        // Prefix with 🤖 so self-testing code blocks recognize it as automated
+        // Prefix with 🤖 so self-testing filters know to ignore it
         await client.sendMessage(targetNumber, `🤖 ${aiResponse}`);
         console.log(`🎉 Success! Reply sent to ${targetNumber}\n`);
     } catch (error) {
